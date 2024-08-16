@@ -3,30 +3,31 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#define MINEIROS 10
-#define CHANCE 33
+#define MINEIROS_OURO 15
+#define MINEIROS_DIAMANTE 15
 
-int picaretas = 3;
-int total_picaretas = 3;
+int picaretas = 10;
+int m_ouro_quer = 0;
+int m_diamante_quer = 0;
 
 pthread_mutex_t mutex_picaretas = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutex_total_picaretas = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t cond_mineiros = PTHREAD_COND_INITIALIZER;
-pthread_cond_t cond_ferreiro = PTHREAD_COND_INITIALIZER;
+pthread_cond_t cond_mineiro_ouro = PTHREAD_COND_INITIALIZER;
+pthread_cond_t cond_mineiro_diamante = PTHREAD_COND_INITIALIZER;
 
-void * mineiro(void* id);
-void * ferreiro();
+void * mineiroOuro(void* id);
+void * mineiroDiamante(void* id);
 
 void main(int argc, char* argv[]) {
     int erro;
     int *id;
 
-    pthread_t tm[MINEIROS];
-   
-    for (int i = 0; i < MINEIROS; i++) {
+    pthread_t tmo[MINEIROS_OURO];
+    
+    // Criar threads dos mineiradores de ouro
+    for (int i = 0; i < MINEIROS_OURO; i++) {
         id = (int *) malloc(sizeof(int));
         *id = i;
-        erro = pthread_create(&tm[i], NULL, mineiro, (void *) (id));
+        erro = pthread_create(&tmo[i], NULL, mineiroOuro, (void *) (id));
 
         if(erro) {
             printf("erro na criacao do thread %d\n", i);
@@ -34,75 +35,77 @@ void main(int argc, char* argv[]) {
         }
     }
 
-    pthread_t tf;
-    erro = pthread_create(&tf, NULL, ferreiro, 0);
+    pthread_t tmd[MINEIROS_DIAMANTE];
 
-    if(erro) {
-        printf("erro na criacao do thread do ferreiro.\n");
-        exit(1);
-    }
-  
-    pthread_join(tf, NULL);
-}
+    // Criar threads dos mineiradores de diamante
+    for (int i = 0; i < MINEIROS_DIAMANTE; i++) {
+        id = (int *) malloc(sizeof(int));
+        *id = i;
+        erro = pthread_create(&tmd[i], NULL, mineiroDiamante, (void *) (id));
 
-
-void * mineiro(void* id) {
-    int m_id =  *(int *)(id);
-    int picareta_quebrou;
-    srand(m_id);
-    while (1) {
-        picareta_quebrou = 0;
-        pthread_mutex_lock(&mutex_picaretas);
-            while (picaretas == 0) {
-                pthread_cond_wait(&cond_mineiros, &mutex_picaretas);
-            }
-            picaretas--;
-            printf("Mineiro %d: pegou uma picareta. Picaretas = %d.\n", m_id, picaretas);
-        pthread_mutex_unlock(&mutex_picaretas);
-
-        printf("Mineiro %d: trabalhando.\n", m_id);
-        sleep(5);
-        int r = rand() % 100;
-        if (r <= CHANCE) {
-            picareta_quebrou = 1;
+        if(erro) {
+            printf("erro na criacao do thread %d\n", i);
+            exit(1);
         }
+    }
+    
+    pthread_join(tmo[0], NULL);
+}
+
+
+void * mineiroOuro(void* id) {
+    int m_id =  *(int *)(id);
+
+    while (1) {
         pthread_mutex_lock(&mutex_picaretas);
-            if (picareta_quebrou == 0){
-                picaretas++;
-                printf("Mineiro %d: devolveu a picareta. Picaretas = %d. Total = %d.\n", m_id, picaretas, total_picaretas);
-                pthread_cond_broadcast(&cond_mineiros);
-            } else {
-                pthread_mutex_lock(&mutex_total_picaretas);
-                    total_picaretas--;
-                    printf("Mineiro %d: a picareta quebrou. Picaretas = %d. Total = %d.\n", m_id, picaretas, total_picaretas);
-                pthread_mutex_unlock(&mutex_total_picaretas);
-                pthread_cond_signal(&cond_ferreiro);
+            m_ouro_quer++;
+            while (picaretas == 0 || m_diamante_quer >= MINEIROS_DIAMANTE / 2) {
+                pthread_cond_wait(&cond_mineiro_ouro, &mutex_picaretas);
             }
+            m_ouro_quer--;
+            picaretas--;
+            printf("Mineiro de Ouro %d: pegou uma picareta. Picaretas = %d.\n", m_id, picaretas);
         pthread_mutex_unlock(&mutex_picaretas);
-        printf("Mineiro %d: dormindo.\n", m_id);
+
+        printf("Mineiro de Ouro %d: trabalhando.\n", m_id);
         sleep(5);
-    }
-}
 
-void * ferreiro() {
-    while (1){
-        pthread_mutex_lock(&mutex_total_picaretas);
-            while (total_picaretas == MINEIROS) {
-                printf("Ferreiro: dormindo.\n");
-                pthread_cond_wait(&cond_ferreiro, &mutex_total_picaretas);
-            }
-        pthread_mutex_unlock(&mutex_total_picaretas);
-        
-        printf("Ferreio: trabalhando.\n");
+        pthread_mutex_lock(&mutex_picaretas);
+            picaretas++;
+            printf("Mineiro de Ouro %d: devolveu a picareta. Picaretas = %d.\n", m_id, picaretas);
+            pthread_cond_broadcast(&cond_mineiro_ouro);
+            pthread_cond_broadcast(&cond_mineiro_diamante);
+        pthread_mutex_unlock(&mutex_picaretas);
+        printf("Mineiro de Ouro %d: dormindo.\n", m_id);
         sleep(10);
-
-        pthread_mutex_lock(&mutex_total_picaretas);
-            total_picaretas++;
-            pthread_mutex_lock(&mutex_picaretas);
-                picaretas++;
-                printf("Ferreiro: produziu uma picareta. Picaretas = %d. Total = %d.\n", picaretas, total_picaretas);
-            pthread_mutex_unlock(&mutex_picaretas);
-            pthread_cond_broadcast(&cond_mineiros);
-        pthread_mutex_unlock(&mutex_total_picaretas);
     }
 }
+
+void * mineiroDiamante(void* id) {
+    int m_id =  *(int *)(id);
+
+    while (1){
+        pthread_mutex_lock(&mutex_picaretas);
+            m_diamante_quer++;
+            while (picaretas == 0) {
+                pthread_cond_wait(&cond_mineiro_diamante, &mutex_picaretas);
+            }
+            m_diamante_quer--;
+            picaretas--;
+            printf("Mineiro de Diamante %d: pegou uma picareta. Picaretas = %d.\n", m_id, picaretas);
+        pthread_mutex_unlock(&mutex_picaretas);
+        
+        printf("Mineiro de Diamante %d: trabalhando.\n", m_id);
+        sleep(5);
+
+        pthread_mutex_lock(&mutex_picaretas);
+            picaretas++;
+            printf("Mineiro de Diamante %d: devolveu a picareta. Picaretas = %d.\n", m_id, picaretas);
+            pthread_cond_broadcast(&cond_mineiro_ouro);
+            pthread_cond_broadcast(&cond_mineiro_diamante);
+        pthread_mutex_unlock(&mutex_picaretas);
+        printf("Mineiro de Diamante %d: dormindo.\n", m_id);
+        sleep(10);
+    }
+}
+
